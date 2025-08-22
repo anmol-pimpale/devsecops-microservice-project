@@ -38,3 +38,37 @@ The complete project report is available here:
 ---
 
 ## 📂 Repository Structure  
+devsecops-microservice-project/
+│
+├── microservice/              # Python microservice app
+│   ├── src/                   # Application source code
+│   │   └── app.py
+│   ├── tests/                 # Unit tests
+│   │   └── test_app.py
+│   ├── requirements.txt       # Dependencies
+│   ├── Dockerfile             # Containerization
+│   └── README.md              # App-specific notes
+│
+├── ci-cd/                     # CI/CD pipelines
+│   ├── Jenkinsfile
+│   └── github-actions.yml
+│
+├── security/                  # Security configs & reports
+│   ├── sonar-project.properties
+│   ├── trivy-scan.sh
+│   └── reports/
+│       ├── trivy-fs-report.txt
+│       ├── trivy-image-report.txt
+│       └── sonar-report.json
+│
+├── eks/                       # AWS EKS deployment manifests
+│   ├── deployment.yaml        # App deployment on EKS
+│   ├── service.yaml           # Service definition for EKS
+│   ├── ingress.yaml           # Ingress rules 
+│   └── eksctl-config.yaml     # eksctl cluster config
+│
+├── docs/                      # Project documentation
+│   └── Project_DevSecOps.pdf
+│
+├── README.md                  # Project overview
+
