@@ -1,0 +1,137 @@
+pipeline {
+    agent any
+    environment {
+        SCANNER_HOME = tool 'sonar-scanner'
+    }
+    stages {
+        
+        stage("Step 01: Create EKS Cluster") {
+            steps {
+                sh '''
+                eksctl create cluster --name=cluster1 \
+                                      --region=us-east-1 \
+                                      --zones=us-east-1a,us-east-1b \
+                                      --without-nodegroup
+                '''
+            }
+        }
+
+        stage("Step 02: Associate IAM OIDC Provider") {
+            steps {
+                sh '''
+                eksctl utils associate-iam-oidc-provider \
+                       --region us-east-1 \
+                       --cluster cluster1 \
+                       --approve
+                '''
+            }
+        }
+
+        stage("Step 03: Create EC2 Keypair Note") {
+            steps {
+                echo 'Ensure EC2 Keypair "awskey1" exists manually in us-east-1 region.'
+            }
+        }
+
+        stage("Step 04: Create EKS Node Group with Add-ons") {
+            steps {
+                sh '''
+                eksctl create nodegroup --cluster=cluster1 \
+                                        --region=us-east-1 \
+                                        --name=cluster1-aws \
+                                        --node-type=t3.medium \
+                                        --nodes=2 \
+                                        --nodes-min=2 \
+                                        --nodes-max=4 \
+                                        --node-volume-size=20 \
+                                        --ssh-access \
+                                        --ssh-public-key=awskey1 \
+                                        --managed \
+                                        --asg-access \
+                                        --external-dns-access \
+                                        --full-ecr-access \
+                                        --appmesh-access \
+                                        --alb-ingress-access
+                '''
+            }
+        }
+
+        // ------------------ EXISTING PIPELINE ------------------
+        stage ("Clean workspace") {
+            steps {
+                cleanWs()
+            }
+        }
+
+        stage ("Git checkout") {
+            steps {
+                git branch: 'main', url: 'https://github.com/yeshwanthlm/background-remover-python-app.git'
+            }
+        }
+
+        stage("SonarQube Analysis") {
+            steps {
+                withSonarQubeEnv('sonar-server') {
+                    sh ''' $SCANNER_HOME/bin/sonar-scanner -Dsonar.projectName=background-remover-python-app \
+                    -Dsonar.projectKey=background-remover-python-app '''
+                }
+            }
+        }
+
+        stage("Quality Gate") {
+            steps {
+                script {
+                    waitForQualityGate abortPipeline: false, credentialsId: 'Sonar-token'
+                }
+            }
+        }
+
+        stage('OWASP FS Scan') {
+            steps {
+                dependencyCheck additionalArguments: '--scan ./ --disableYarnAudit --disableNodeAudit', odcInstallation: 'DP-Check'
+                dependencyCheckPublisher pattern: '/dependency-check-report.xml'
+            }
+        }
+
+        stage ("Trivy File Scan") {
+            steps {
+                sh "trivy fs . > trivy.txt"
+            }
+        }
+
+        stage ("Build Docker Image") {
+            steps {
+                sh "docker build -t background-remover-python-app ."
+            }
+        }
+
+        stage ("Tag & Push to DockerHub") {
+            steps {
+                script {
+                    withDockerRegistry(credentialsId: 'docker') {
+                        sh "docker tag background-remover-python-app shre28/background-remover-python-app:latest"
+                        sh "docker push shre28/background-remover-python-app:latest"
+                    }
+                }
+            }
+        }
+
+        stage('Docker Scout Image') {
+            steps {
+                script {
+                   withDockerRegistry(credentialsId: 'docker', toolName: 'docker') {
+                       sh 'docker-scout quickview shre28/background-remover-python-app:latest'
+                       sh 'docker-scout cves shre28/background-remover-python-app:latest'
+                       sh 'docker-scout recommendations shre28/background-remover-python-app:latest'
+                   }
+                }
+            }
+        }
+
+        stage ("Deploy to Container") {
+            steps {
+                sh 'docker run -d --name background-remover-python-app -p 5100:5100 shre28/background-remover-python-app:latest'
+            }
+        }
+    }
+}
